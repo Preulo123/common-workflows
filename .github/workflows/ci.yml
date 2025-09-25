@@ -1,0 +1,55 @@
+name: CI (Reusable)
+
+on:
+  workflow_call:
+
+jobs:
+  validate-pr-description:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fails if PR description is empty
+        run: |
+          if [ -z "${{ github.event.pull_request.body }}" ]; then
+            echo "Pull request description is required."
+            exit 1
+          fi
+
+  validate-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checks that commit messages follow the Conventional Commits standard
+        run: |
+          echo "Validating commit messages..."
+          regex="^(feat|fix|docs|test|chore)(\([a-z0-9\-]+\))?: .+"
+          commits=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits --jq '.[].commit.message')
+          failed=0
+          while IFS= read -r msg; do
+            if ! echo "$msg" | grep -Eq "$regex"; then
+              echo "Invalid commit message: $msg"
+              failed=1
+            fi
+          done <<< "$commits"
+          exit $failed
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  unit-test:
+    runs-on: ubuntu-latest
+    needs: [validate-pr-description, validate-commits]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 6.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Run tests
+        run: dotnet test --no-build --configuration Release --verbosity normal
