@@ -1,0 +1,59 @@
+name: CD for .NET packages (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      project-path:
+        description: "Path to .csproj"
+        required: true
+        type: string
+    secrets:
+      NUGET_API_KEY:
+        required: true
+
+jobs:
+  calc-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.calc.outputs.version }}
+      needs_rebuild: ${{ steps.calc.outputs.needs_rebuild }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: calc
+        run: bash scripts/calc-version.sh
+
+  tag:
+    runs-on: ubuntu-latest
+    needs: calc-version
+    if: ${{ needs.calc-version.outputs.needs_rebuild == 'true' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Create Tag
+        run: |
+          git tag v${{ needs.calc-version.outputs.version }}
+          git push origin v${{ needs.calc-version.outputs.version }}
+
+  pack-and-publish:
+    runs-on: ubuntu-latest
+    needs: calc-version
+    if: ${{ needs.calc-version.outputs.needs_rebuild == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 6.0.x
+      - name: Restore
+        run: dotnet restore ${{ inputs.project-path }}
+      - name: Pack
+        run: dotnet pack ${{ inputs.project-path }} -c Release -p:PackageVersion=${{ needs.calc-version.outputs.version }}
+      - name: Publish
+        run: dotnet nuget push "$(dirname ${{ inputs.project-path }})/bin/Release/*${{ needs.calc-version.outputs.version }}.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
