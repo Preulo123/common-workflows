@@ -24,23 +24,6 @@ jobs:
       - id: calc
         run: bash scripts/calc-version.sh
 
-  tag:
-    runs-on: ubuntu-latest
-    needs: calc-version
-    if: ${{ needs.calc-version.outputs.needs_rebuild == 'true' }}
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Git user
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-      - name: Create Tag
-        run: |
-          git tag v${{ needs.calc-version.outputs.version }}
-          git push origin v${{ needs.calc-version.outputs.version }}
-
   pack-and-publish:
     runs-on: ubuntu-latest
     needs: calc-version
@@ -57,3 +40,20 @@ jobs:
         run: dotnet pack ${{ inputs.project-path }} -c Release -p:PackageVersion=${{ needs.calc-version.outputs.version }}
       - name: Publish
         run: dotnet nuget push "$(dirname ${{ inputs.project-path }})/bin/Release/*${{ needs.calc-version.outputs.version }}.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+
+  tag:
+    runs-on: ubuntu-latest
+    needs: [calc-version, pack-and-publish]
+    if: ${{ needs.calc-version.outputs.needs_rebuild == 'true' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Create Tag
+        run: |
+          git tag v${{ needs.calc-version.outputs.version }}
+          git push origin v${{ needs.calc-version.outputs.version }}
